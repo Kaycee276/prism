@@ -141,6 +141,7 @@ export interface ContractFunctionSpec {
   name: string;
   inputs: { name: string; type: string }[];
   outputs: string[];
+  doc?: string;
 }
 
 export interface ContractEventSpec {

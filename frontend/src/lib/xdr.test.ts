@@ -151,6 +151,18 @@ describe("coerceArgInput integer ranges", () => {
       max: "170141183460469231731687303715884105727",
       scvName: "scvI128",
     },
+    {
+      type: "U256",
+      min: "0",
+      max: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      scvName: "scvU256",
+    },
+    {
+      type: "I256",
+      min: "-57896044618658097711785492504343953926634992332820282019728792003956564819968",
+      max: "57896044618658097711785492504343953926634992332820282019728792003956564819967",
+      scvName: "scvI256",
+    },
   ];
 
   it.each(integerTypes)("accepts the bounds of $type", ({ type, min, max, scvName }) => {
@@ -174,6 +186,43 @@ describe("coerceArgInput integer ranges", () => {
 });
 
 describe("parseContractSpec", () => {
+  function functionEntry(doc = "", inputType = xdr.ScSpecTypeDef.scSpecTypeU32()) {
+    return xdr.ScSpecEntry.scSpecEntryFunctionV0(
+      new xdr.ScSpecFunctionV0({
+        doc,
+        name: "annotate",
+        inputs: [
+          new xdr.ScSpecFunctionInputV0({ doc: "", name: "value", type: inputType }),
+        ],
+        outputs: [inputType],
+      })
+    );
+  }
+
+  it("renders tuple elements in signatures instead of the bare word Tuple", () => {
+    const tuple = xdr.ScSpecTypeDef.scSpecTypeTuple(
+      new xdr.ScSpecTypeTuple({
+        valueTypes: [xdr.ScSpecTypeDef.scSpecTypeU32(), xdr.ScSpecTypeDef.scSpecTypeSymbol()],
+      })
+    );
+
+    const [spec] = parseContractSpec(wasmWithSpec([functionEntry("", tuple)]));
+    expect(spec.inputs).toEqual([{ name: "value", type: "(U32, Symbol)" }]);
+    expect(spec.outputs).toEqual(["(U32, Symbol)"]);
+  });
+
+  it("keeps a function's doc comment", () => {
+    const [spec] = parseContractSpec(
+      wasmWithSpec([functionEntry("Advances the note's revision.")])
+    );
+    expect(spec.doc).toBe("Advances the note's revision.");
+  });
+
+  it("omits an absent function doc comment rather than reporting an empty string", () => {
+    const [spec] = parseContractSpec(wasmWithSpec([functionEntry()]));
+    expect(spec.doc).toBeUndefined();
+  });
+
   it("returns an empty array for a WASM binary with no contract spec section", () => {
     // Smallest valid WASM module: magic number + version, no sections.
     const emptyModule = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
@@ -624,6 +673,26 @@ describe("coerceArgInput with compound types", () => {
   it("reports what it wanted when the input isn't the right shape", () => {
     expect(() => coerceArgInput('"a"', "Vec<Symbol>")).toThrow(/expects a JSON array/);
     expect(() => coerceArgInput("[1]", "Map<Symbol, U32>")).toThrow(/expects a JSON object/);
+  });
+
+  it("coerces tuple elements against their declared types", () => {
+    const tuple = coerceArgInput('[1, "a"]', "(U32, Symbol)");
+    expect(tuple.switch().name).toBe("scvVec");
+    // JSON inference alone would give scvU64 and scvString here.
+    expect(tuple.vec()!.map((v) => v.switch().name)).toEqual(["scvU32", "scvSymbol"]);
+    expect(tuple.vec()![1].sym().toString()).toBe("a");
+  });
+
+  it("rejects a tuple whose length disagrees with the spec", () => {
+    expect(() => coerceArgInput("[1]", "(U32, Symbol)")).toThrow(
+      "(U32, Symbol) expects a JSON array of 2 value(s)."
+    );
+    expect(() => coerceArgInput('[1, "a", 2]', "(U32, Symbol)")).toThrow(
+      /expects a JSON array of 2 value\(s\)/
+    );
+    expect(() => coerceArgInput('{"0":1}', "(U32, Symbol)")).toThrow(
+      /expects a JSON array of 2 value\(s\)/
+    );
   });
 
   it("still falls back to JSON inference for a contract's own types", () => {
