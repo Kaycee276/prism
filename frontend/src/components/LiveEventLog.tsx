@@ -46,13 +46,21 @@ export default function LiveEventLog({
   const events = mergeVisible(firstPage, olderEvents, (event) => event.id);
 
   useEffect(() => {
-    const id = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/contract/${contractId}/events`);
-        const data = await res.json();
-        if (!res.ok || data.error) {
-          setError(data.error ?? "The RPC node rejected the request.");
-          return;
+    return startVisibilityPolling({
+      intervalMs,
+      refresh: async () => {
+        try {
+          const res = await fetch(`/api/contract/${contractId}/events`);
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            setError(data.error ?? "The RPC node rejected the request.");
+            return;
+          }
+          setEvents(data.events);
+          setNextCursor(data.nextCursor ?? null);
+          setError(null);
+        } catch {
+          setError("The events API could not be reached.");
         }
         setFirstPage(data.events);
         setNextCursor(data.nextCursor ?? null);

@@ -1,4 +1,4 @@
-import { Account, Address, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { Account, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import type {
   ContractEvent,
   ContractInfo,
@@ -7,16 +7,21 @@ import type {
   StorageEntry,
 } from "@/types";
 import {
+  coerceArgInput,
   decodeInvocation,
   parseContractEvents,
   parseContractSpec,
   parseContractTypes,
   scValToDisplay,
+  type ParsedTypeDef,
 } from "./xdr";
 import { config } from "./config";
+// Re-exported for callers that already import key helpers from this module.
+export { SIMPLE_STORAGE_KEY_KINDS, type SimpleStorageKeyKind } from "./storage-key-validation";
 import type { HistoryPage, PageRequest } from "./history-cursor";
 import { classifyStorageEntry, withStorageState } from "./storage-state";
 import { EVENT_PAGE_SIZE, INVOCATION_PAGE_SIZE } from "./contract-lists";
+import { cache } from "./request-cache";
 import {
   isIndexerConfigured,
   getIndexedContract,
@@ -34,7 +39,13 @@ function server(): rpc.Server {
   return _server;
 }
 
-export async function getContractInfo(contractId: string): Promise<ContractInfo | null> {
+/**
+ * Read a contract's instance data from RPC and enrich it with indexed
+ * deployment details. Wrapped in a request cache (see ./request-cache) so a
+ * page view that asks for the same contract from `generateMetadata`, the page
+ * itself, and `getContractWasmInfo` only performs one lookup.
+ */
+async function fetchContractInfo(contractId: string): Promise<ContractInfo | null> {
   let info: ContractInfo;
   try {
     const entry = await server().getContractData(
@@ -84,6 +95,13 @@ export async function getContractInfo(contractId: string): Promise<ContractInfo 
     deploymentLedger: indexed?.deploymentLedger,
   };
 }
+
+/**
+ * Request-scoped, memoised contract lookup. Multiple callers within the same
+ * server request share a single RPC getContractData call and DB query.
+ */
+export const getContractInfo: (contractId: string) => Promise<ContractInfo | null> =
+  cache(fetchContractInfo);
 
 export type StorageKeyKind = "symbol" | "string" | "u32" | "address";
 
@@ -186,12 +204,20 @@ export async function getFullStorageEntries(contractId: string): Promise<Storage
 const wasmAbiCache = new Map<string, ContractWasmInfo>();
 const WASM_CACHE_MAX = 200;
 
-/** Fetch WASM bytecode size and best-effort parse its embedded ABI (contract spec), if any. */
-export async function getContractWasmInfo(contractId: string): Promise<ContractWasmInfo | null> {
+/**
+ * Fetch WASM bytecode size and best-effort parse its embedded ABI (contract
+ * spec), if any. Callers that already loaded the contract info can pass it in
+ * to avoid a second lookup; otherwise the request-cached `getContractInfo` is
+ * used so concurrent callers still share one RPC call.
+ */
+export async function getContractWasmInfo(
+  contractId: string,
+  providedInfo?: ContractInfo | null
+): Promise<ContractWasmInfo | null> {
   try {
     // Read the WASM hash from the contract instance entry first so we can
     // serve a cache hit without downloading the bytecode at all.
-    const info = await getContractInfo(contractId);
+    const info = providedInfo === undefined ? await getContractInfo(contractId) : providedInfo;
     if (info?.wasmHash && wasmAbiCache.has(info.wasmHash)) {
       return wasmAbiCache.get(info.wasmHash)!;
     }

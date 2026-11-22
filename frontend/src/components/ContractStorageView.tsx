@@ -4,9 +4,14 @@ import StorageLookup from "./StorageLookup";
 import { storageStateLabel } from "@/lib/storage-state";
 import type { StorageEntry } from "@/types";
 
-interface Props { contractId: string; instanceStorage: StorageEntry[]; fullStorage?: StorageEntry[] }
+interface Props {
+  contractId: string;
+  instanceStorage: StorageEntry[];
+  fullStorage?: StorageEntry[];
+  types?: ContractTypeDef[];
+}
 
-export default function ContractStorageView({ contractId, instanceStorage, fullStorage }: Props) {
+export default function ContractStorageView({ contractId, instanceStorage, fullStorage, types }: Props) {
   const hasFullStorage = fullStorage !== undefined && fullStorage.length > 0;
 
   return (
@@ -72,7 +77,7 @@ export default function ContractStorageView({ contractId, instanceStorage, fullS
           </table>
         </div>
       )}
-      <StorageLookup contractId={contractId} />
+      <StorageLookup contractId={contractId} types={types} />
     </div>
   );
 }
