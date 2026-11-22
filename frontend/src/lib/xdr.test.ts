@@ -13,6 +13,7 @@ import {
 import {
   decodeScVal,
   scValToDisplay,
+  scValTypeLabel,
   decodeXdr,
   decodeScValXdr,
   coerceArgInput,
@@ -1085,5 +1086,21 @@ describe("decodeAnyXdr (transaction meta)", () => {
       Events: "1",
       "Return value": "7",
     });
+  });
+});
+
+describe("scValTypeLabel", () => {
+  it("tags scalars with their ScVal kind, so same-looking values stay distinct", () => {
+    expect(scValTypeLabel(xdr.ScVal.scvSymbol("5"))).toBe("symbol");
+    expect(scValTypeLabel(xdr.ScVal.scvString("5"))).toBe("string");
+    expect(scValTypeLabel(xdr.ScVal.scvU32(5))).toBe("u32");
+    expect(scValTypeLabel(xdr.ScVal.scvU64(xdr.Uint64.fromString("5")))).toBe("u64");
+  });
+
+  it("leaves the compact string unchanged for the same values", () => {
+    expect(scValToDisplay(xdr.ScVal.scvSymbol("5"))).toBe("5");
+    expect(scValToDisplay(xdr.ScVal.scvString("5"))).toBe("5");
+    expect(scValToDisplay(xdr.ScVal.scvU32(5))).toBe("5");
+    expect(scValToDisplay(xdr.ScVal.scvU64(xdr.Uint64.fromString("5")))).toBe("5");
   });
 });

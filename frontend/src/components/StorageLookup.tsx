@@ -208,6 +208,7 @@ export default function StorageLookup({ contractId, types = [] }: Props) {
               </p>
               <p className="break-all">
                 <span className="text-prism-muted">Value:</span> {result.value}
+                {result.valueType && <span className="text-prism-muted"> ({result.valueType})</span>}
               </p>
               <p>
                 <span className="text-prism-muted">State:</span>{" "}

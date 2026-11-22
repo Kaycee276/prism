@@ -2,7 +2,7 @@
 // The implementation is split by responsibility across the sibling modules;
 // import from here and the split stays an internal detail.
 export { coerceArgInput } from "./coerce";
-export { decodeScVal, scValToDisplay, decodeXdr, decodeScValXdr } from "./display";
+export { decodeScVal, scValToDisplay, scValTypeLabel, decodeXdr, decodeScValXdr } from "./display";
 export { parseContractSpec, parseContractTypes, parseContractEvents } from "./spec";
 export type { ParsedFunctionSpec, EventParamSpec, ParsedEventSpec, ParsedTypeDef } from "./spec";
 export { decodeInvocations, decodeInvocation, getResourceUsage } from "./invocation";

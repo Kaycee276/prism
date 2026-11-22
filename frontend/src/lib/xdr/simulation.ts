@@ -4,7 +4,7 @@
 // server-action boundary: the SDK's XDR machinery never reaches the browser.
 import { Address, xdr } from "@stellar/stellar-sdk";
 import type { ContractEvent, SimulationFootprint } from "@/types";
-import { scValToDisplay } from "./display";
+import { scValToDisplay, scValTypeLabel } from "./display";
 
 /**
  * Describe one authorized call tree — the root call plus any nested
@@ -84,7 +84,9 @@ export function decodeSimulationEvents(
         contractId,
         type: event.type().name,
         topic: body.topics().map(scValToDisplay),
+        topicTypes: body.topics().map(scValTypeLabel),
         value: scValToDisplay(body.data()),
+        valueType: scValTypeLabel(body.data()),
         txHash: "",
         ledger: 0,
         timestamp: "",

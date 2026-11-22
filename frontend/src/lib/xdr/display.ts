@@ -60,6 +60,15 @@ export function scValToDisplay(val: xdr.ScVal): string {
   return typeof decoded === "string" ? decoded : JSON.stringify(decoded);
 }
 
+/**
+ * The ScVal kind of a value as a short tag, e.g. "u32", "symbol", "address".
+ * Kept apart from scValToDisplay so the compact string stays the same for tables.
+ */
+export function scValTypeLabel(val: xdr.ScVal): string {
+  const name = val.switch().name.replace(/^scv/, "");
+  return name.charAt(0).toLowerCase() + name.slice(1);
+}
+
 /** Decode a base64-encoded ScVal XDR string to a display string. Falls back to the raw base64 on failure. */
 export function decodeXdr(xdrBase64: string): string {
   try {

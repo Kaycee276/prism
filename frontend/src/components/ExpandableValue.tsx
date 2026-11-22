@@ -5,6 +5,8 @@ import CopyButton from "./CopyButton";
 
 interface Props {
   value: string;
+  /** ScVal type of the value (e.g. "u32"), shown beside it. */
+  valueType?: string;
   /** Values longer than this start collapsed to a preview. */
   previewLength?: number;
 }
@@ -17,13 +19,14 @@ interface Props {
  * preview with an expand control. The copy button always copies the full value,
  * expanded or not.
  */
-export default function ExpandableValue({ value, previewLength = 96 }: Props) {
+export default function ExpandableValue({ value, valueType, previewLength = 96 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const isLong = value.length > previewLength;
   const shown = isLong && !expanded ? `${value.slice(0, previewLength)}...` : value;
 
   return (
     <div className="flex items-start gap-2">
+      {valueType && <span className="shrink-0 text-xs opacity-60">({valueType})</span>}
       <span className="min-w-0 break-all">{shown}</span>
       {isLong && (
         <button
