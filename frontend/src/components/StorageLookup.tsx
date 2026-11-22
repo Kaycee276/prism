@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { lookupStorageKeyAction } from "@/lib/actions";
-import { formatNumber } from "@/lib/format";
-import { SIMPLE_STORAGE_KEY_KINDS, validateStorageKeyValue } from "@/lib/storage-key-validation";
-import type { ContractTypeDef, StorageEntry } from "@/types";
+import { storageStateLabel } from "@/lib/storage-state";
+import type { StorageEntry } from "@/types";
+import type { StorageKeyKind } from "@/lib/soroban";
 
 interface Props {
   contractId: string;
@@ -209,9 +209,24 @@ export default function StorageLookup({ contractId, types = [] }: Props) {
               <p className="break-all">
                 <span className="text-prism-muted">Value:</span> {result.value}
               </p>
+              <p>
+                <span className="text-prism-muted">State:</span>{" "}
+                <span
+                  className={
+                    result.state === "expired"
+                      ? "text-prism-red"
+                      : result.state === "archived"
+                      ? "text-prism-accent"
+                      : undefined
+                  }
+                >
+                  {storageStateLabel(result.state ?? "live")}
+                </span>
+              </p>
               {result.liveUntilLedgerSeq !== undefined && (
                 <p>
-                  <span className="text-prism-muted">Live until ledger:</span> #{formatNumber(result.liveUntilLedgerSeq)}
+                  <span className="text-prism-muted">Live until ledger:</span>{" "}
+                  #{result.liveUntilLedgerSeq.toLocaleString()}
                 </p>
               )}
             </div>
