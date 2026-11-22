@@ -1,4 +1,4 @@
-import { Account, Address, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { Account, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import type {
   ContractEvent,
   ContractInfo,
@@ -8,6 +8,7 @@ import type {
   StorageEntry,
 } from "@/types";
 import {
+  coerceArgInput,
   decodeInvocation,
   decodeScVal,
   decodeSimulationEvents,
@@ -17,10 +18,15 @@ import {
   parseContractSpec,
   parseContractTypes,
   scValToDisplay,
+  type ParsedTypeDef,
 } from "./xdr";
 import { config } from "./config";
+// Re-exported for callers that already import key helpers from this module.
+export { SIMPLE_STORAGE_KEY_KINDS, type SimpleStorageKeyKind } from "./storage-key-validation";
 import type { HistoryPage, PageRequest } from "./history-cursor";
+import { classifyStorageEntry, withStorageState } from "./storage-state";
 import { EVENT_PAGE_SIZE, INVOCATION_PAGE_SIZE } from "./contract-lists";
+import { cache } from "./request-cache";
 import {
   isIndexerConfigured,
   getIndexedContract,
@@ -110,6 +116,13 @@ export async function getContractInfo(contractId: string): Promise<ContractInfo 
   };
 }
 
+/**
+ * Request-scoped, memoised contract lookup. Multiple callers within the same
+ * server request share a single RPC getContractData call and DB query.
+ */
+export const getContractInfo: (contractId: string) => Promise<ContractInfo | null> =
+  cache(fetchContractInfo);
+
 export type StorageKeyKind = "symbol" | "string" | "u32" | "address";
 
 export function parseStorageKeyInput(raw: string, kind: StorageKeyKind): xdr.ScVal {
@@ -125,35 +138,81 @@ export function parseStorageKeyInput(raw: string, kind: StorageKeyKind): xdr.ScV
   }
 }
 
-export async function lookupStorageEntry(
-  contractId: string,
-  key: xdr.ScVal,
-  durability: "persistent" | "temporary"
-): Promise<StorageEntry | null> {
+/** Latest ledger sequence, or null when RPC can't tell us (labels stay neutral then). */
+async function latestLedgerSeq(): Promise<number | null> {
   try {
-    const entry = await server().getContractData(
-      contractId,
-      key,
-      durability === "temporary" ? rpc.Durability.Temporary : rpc.Durability.Persistent
-    );
-    return {
-      key: scValToDisplay(key),
-      value: scValToDisplay(entry.val.contractData().val()),
-      durability,
-    };
+    return (await server().getLatestLedger()).sequence;
   } catch {
     return null;
   }
 }
 
+export async function lookupStorageEntry(
+  contractId: string,
+  key: xdr.ScVal,
+  durability: "persistent" | "temporary"
+): Promise<StorageEntry | null> {
+  const keyDisplay = scValToDisplay(key);
+  try {
+    const [entry, latest] = await Promise.all([
+      server().getContractData(
+        contractId,
+        key,
+        durability === "temporary" ? rpc.Durability.Temporary : rpc.Durability.Persistent
+      ),
+      latestLedgerSeq(),
+    ]);
+    const found: StorageEntry = {
+      key: keyDisplay,
+      value: scValToDisplay(entry.val.contractData().val()),
+      durability,
+      liveUntilLedgerSeq: entry.liveUntilLedgerSeq ?? undefined,
+    };
+    return latest === null ? found : withStorageState(found, latest);
+  } catch {
+    // getContractData throws for entries past their TTL, which looks identical
+    // to a key that never existed. If the indexer saw the key, report its last
+    // observation with the expired/archived label instead of "not found".
+    if (!isIndexerConfigured()) return null;
+    const indexed = await getIndexedStorageEntries(contractId);
+    const match = indexed.find(
+      (e) => e.keyDisplay === keyDisplay && e.durability === durability
+    );
+    if (!match) return null;
+    const latest = await latestLedgerSeq();
+    if (
+      latest === null ||
+      classifyStorageEntry(durability, match.liveUntilLedger, latest) === "live"
+    ) {
+      return null;
+    }
+    return withStorageState(
+      {
+        key: keyDisplay,
+        value: match.valueDisplay,
+        durability,
+        liveUntilLedgerSeq: match.liveUntilLedger ?? undefined,
+      },
+      latest
+    );
+  }
+}
+
 export async function getFullStorageEntries(contractId: string): Promise<StorageEntry[]> {
   if (!isIndexerConfigured()) return [];
-  const indexed = await getIndexedStorageEntries(contractId);
-  return indexed.map((e) => ({
-    key: e.keyDisplay,
-    value: e.valueDisplay,
-    durability: e.durability as StorageEntry["durability"],
-  }));
+  const [indexed, latest] = await Promise.all([
+    getIndexedStorageEntries(contractId),
+    latestLedgerSeq(),
+  ]);
+  return indexed.map((e) => {
+    const entry: StorageEntry = {
+      key: e.keyDisplay,
+      value: e.valueDisplay,
+      durability: e.durability as StorageEntry["durability"],
+      liveUntilLedgerSeq: e.liveUntilLedger ?? undefined,
+    };
+    return latest === null ? entry : withStorageState(entry, latest);
+  });
 }
 
 /**
@@ -165,12 +224,20 @@ export async function getFullStorageEntries(contractId: string): Promise<Storage
 const wasmAbiCache = new Map<string, ContractWasmInfo>();
 const WASM_CACHE_MAX = 200;
 
-/** Fetch WASM bytecode size and best-effort parse its embedded ABI (contract spec), if any. */
-export async function getContractWasmInfo(contractId: string): Promise<ContractWasmInfo | null> {
+/**
+ * Fetch WASM bytecode size and best-effort parse its embedded ABI (contract
+ * spec), if any. Callers that already loaded the contract info can pass it in
+ * to avoid a second lookup; otherwise the request-cached `getContractInfo` is
+ * used so concurrent callers still share one RPC call.
+ */
+export async function getContractWasmInfo(
+  contractId: string,
+  providedInfo?: ContractInfo | null
+): Promise<ContractWasmInfo | null> {
   try {
     // Read the WASM hash from the contract instance entry first so we can
     // serve a cache hit without downloading the bytecode at all.
-    const info = await getContractInfo(contractId);
+    const info = providedInfo === undefined ? await getContractInfo(contractId) : providedInfo;
     if (info?.wasmHash && wasmAbiCache.has(info.wasmHash)) {
       return wasmAbiCache.get(info.wasmHash)!;
     }
