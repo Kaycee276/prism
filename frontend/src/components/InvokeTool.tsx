@@ -54,7 +54,7 @@ export default function InvokeTool({ contractId, functions, types = [], eventSpe
   }
 
   function needsJsonValidation(type: string): boolean {
-    return /^(Vec|Map)</.test(type.trim()) || 
+    return /^(Vec|Map|\()/.test(type.trim()) || 
            types.some((t) => t.name === type.trim() && (t.kind === "struct" || t.kind === "union"));
   }
 
@@ -103,6 +103,10 @@ export default function InvokeTool({ contractId, functions, types = [], eventSpe
           ))}
           </select>
         </div>
+
+        {fn?.doc && (
+          <p className="text-xs text-prism-muted whitespace-pre-wrap">{fn.doc}</p>
+        )}
 
         {fn && fn.inputs.length > 0 && (
           <div className="space-y-2">

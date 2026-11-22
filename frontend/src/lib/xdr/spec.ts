@@ -5,6 +5,7 @@ export interface ParsedFunctionSpec {
   name: string;
   inputs: { name: string; type: string }[];
   outputs: string[];
+  doc?: string;
 }
 
 /** One field of a declared event, and whether it rides in the topic list or the data payload. */
@@ -68,6 +69,7 @@ export function parseContractSpec(wasm: Buffer): ParsedFunctionSpec[] {
             type: specTypeToString(input.type()),
           })),
           outputs: fn.outputs().map(specTypeToString),
+          doc: fn.doc().toString() || undefined,
         };
       });
   } catch {
@@ -218,6 +220,8 @@ export function specTypeToString(type: xdr.ScSpecTypeDef): string {
       return `Option<${specTypeToString(type.option().valueType())}>`;
     case "scSpecTypeResult":
       return `Result<${specTypeToString(type.result().okType())}>`;
+    case "scSpecTypeTuple":
+      return `(${type.tuple().valueTypes().map(specTypeToString).join(", ")})`;
     case "scSpecTypeUdt":
       return type.udt().name().toString();
     default:

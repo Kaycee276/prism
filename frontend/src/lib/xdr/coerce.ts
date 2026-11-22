@@ -1,14 +1,14 @@
 import { StrKey, xdr, nativeToScVal } from "@stellar/stellar-sdk";
 import type { ParsedTypeDef } from "./spec";
 
-/** Split a generic's argument list on top-level commas, respecting nesting. */
+/** Split a type's argument list on top-level commas, respecting nesting. */
 function splitTypeArgs(inner: string): string[] {
   const args: string[] = [];
   let depth = 0;
   let current = "";
   for (const char of inner) {
-    if (char === "<") depth++;
-    if (char === ">") depth--;
+    if (char === "<" || char === "(") depth++;
+    if (char === ">" || char === ")") depth--;
     if (char === "," && depth === 0) {
       args.push(current.trim());
       current = "";
@@ -25,6 +25,12 @@ function parseGeneric(specType: string): { name: string; args: string[] } | null
   const match = /^([A-Za-z]+)<(.+)>$/.exec(specType.trim());
   if (!match) return null;
   return { name: match[1].toLowerCase(), args: splitTypeArgs(match[2]) };
+}
+
+/** Match a tuple spec type like "(U32, Symbol)" and split its element types. */
+function parseTuple(specType: string): string[] | null {
+  const match = /^\((.+)\)$/.exec(specType.trim());
+  return match ? splitTypeArgs(match[1]) : null;
 }
 
 /**
@@ -66,6 +72,8 @@ const INTEGER_BOUNDS = {
   i64: signedBounds(64),
   u128: unsignedBounds(128),
   i128: signedBounds(128),
+  u256: unsignedBounds(256),
+  i256: signedBounds(256),
 };
 
 /**
@@ -112,6 +120,8 @@ export function coerceArgInput(
   if (t === "i64") return nativeToScVal(parseInteger(raw, specType, INTEGER_BOUNDS.i64), { type: "i64" });
   if (t === "u128") return nativeToScVal(parseInteger(raw, specType, INTEGER_BOUNDS.u128), { type: "u128" });
   if (t === "i128") return nativeToScVal(parseInteger(raw, specType, INTEGER_BOUNDS.i128), { type: "i128" });
+  if (t === "u256") return nativeToScVal(parseInteger(raw, specType, INTEGER_BOUNDS.u256), { type: "u256" });
+  if (t === "i256") return nativeToScVal(parseInteger(raw, specType, INTEGER_BOUNDS.i256), { type: "i256" });
   if (t === "symbol") return nativeToScVal(raw, { type: "symbol" });
   if (t === "string") return nativeToScVal(raw, { type: "string" });
   if (t === "address") {
@@ -175,6 +185,17 @@ export function coerceArgInput(
       );
     }
     return nativeToScVal(entries);
+  }
+
+  const tuple = parseTuple(specType);
+  if (tuple) {
+    const parsed = parseJsonArg(raw, specType, `a JSON array of ${tuple.length} value(s)`);
+    if (!Array.isArray(parsed) || parsed.length !== tuple.length) {
+      throw new Error(`${specType} expects a JSON array of ${tuple.length} value(s).`);
+    }
+    return xdr.ScVal.scvVec(
+      parsed.map((item, i) => coerceArgInput(elementInput(item), tuple[i], types))
+    );
   }
 
   const udt = types.find((def) => def.name === specType.trim());

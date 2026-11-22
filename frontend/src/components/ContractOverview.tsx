@@ -62,7 +62,12 @@ export default function ContractOverview({ info, wasm }: Props) {
               <tbody>
                 {wasm.functions.map((fn) => (
                   <tr key={fn.name} className="border-b border-prism-border last:border-0">
-                    <td className="px-3 py-2 font-mono text-prism-accent whitespace-nowrap align-top">{fn.name}</td>
+                    <td
+                      className="px-3 py-2 font-mono text-prism-accent whitespace-nowrap align-top"
+                      title={fn.doc}
+                    >
+                      {fn.name}
+                    </td>
                     <td className="px-3 py-2 font-mono text-prism-muted">
                       ({fn.inputs.map((i) => `${i.name}: ${i.type}`).join(", ")})
                       {fn.outputs.length > 0 && <> &rarr; {fn.outputs.join(", ")}</>}
