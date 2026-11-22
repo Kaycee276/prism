@@ -34,25 +34,37 @@ describe("poolConfigFromEnv", () => {
   });
 
   it("enables TLS with certificate verification for DATABASE_SSL=true", () => {
-    expect(poolConfigFromEnv({ DATABASE_URL, DATABASE_SSL: "true" }).ssl).toBe(true);
+    expect(poolConfigFromEnv({ DATABASE_URL, DATABASE_SSL: "true" }).ssl).toBe(
+      true
+    );
   });
 
   it("encrypts without verification for DATABASE_SSL=no-verify", () => {
-    expect(poolConfigFromEnv({ DATABASE_URL, DATABASE_SSL: "no-verify" }).ssl).toEqual({
+    expect(
+      poolConfigFromEnv({ DATABASE_URL, DATABASE_SSL: "no-verify" }).ssl
+    ).toEqual({
       rejectUnauthorized: false,
     });
   });
 
   it("leaves TLS off for DATABASE_SSL=false", () => {
-    expect(poolConfigFromEnv({ DATABASE_URL, DATABASE_SSL: "false" }).ssl).toBeUndefined();
+    expect(
+      poolConfigFromEnv({ DATABASE_URL, DATABASE_SSL: "false" }).ssl
+    ).toBeUndefined();
   });
 
   it("rejects values that would silently change behaviour", () => {
-    expect(() => poolConfigFromEnv({ DATABASE_POOL_MAX: "ten" })).toThrow(/DATABASE_POOL_MAX/);
-    expect(() => poolConfigFromEnv({ DATABASE_POOL_MAX: "0" })).toThrow(/DATABASE_POOL_MAX/);
+    expect(() => poolConfigFromEnv({ DATABASE_POOL_MAX: "ten" })).toThrow(
+      /DATABASE_POOL_MAX/
+    );
+    expect(() => poolConfigFromEnv({ DATABASE_POOL_MAX: "0" })).toThrow(
+      /DATABASE_POOL_MAX/
+    );
     expect(() => poolConfigFromEnv({ DATABASE_IDLE_TIMEOUT_MS: "-1" })).toThrow(
       /DATABASE_IDLE_TIMEOUT_MS/
     );
-    expect(() => poolConfigFromEnv({ DATABASE_SSL: "yes" })).toThrow(/DATABASE_SSL/);
+    expect(() => poolConfigFromEnv({ DATABASE_SSL: "yes" })).toThrow(
+      /DATABASE_SSL/
+    );
   });
 });

@@ -69,9 +69,13 @@ export function identifyXdr(input: string): XdrTypeName | null {
   for (const name of CANDIDATE_XDR_TYPES) {
     try {
       const type = xdr[name] as unknown as {
-        fromXDR(data: string, format: "base64"): { toXDR(format: "base64"): string };
+        fromXDR(
+          data: string,
+          format: "base64"
+        ): { toXDR(format: "base64"): string };
       };
-      if (type.fromXDR(base64, "base64").toXDR("base64") === base64) return name;
+      if (type.fromXDR(base64, "base64").toXDR("base64") === base64)
+        return name;
     } catch {
       // Not this type — keep going.
     }
@@ -113,8 +117,12 @@ function memoToDisplay(memo: xdr.Memo): string {
   }
 }
 
-function transactionEnvelopeFields(envelope: xdr.TransactionEnvelope): XdrField[] {
-  const fields: XdrField[] = [{ label: "Envelope type", value: envelope.switch().name }];
+function transactionEnvelopeFields(
+  envelope: xdr.TransactionEnvelope
+): XdrField[] {
+  const fields: XdrField[] = [
+    { label: "Envelope type", value: envelope.switch().name },
+  ];
 
   // v0 envelopes carry a bare ed25519 key where v1 carries a muxed account,
   // so the common fields have to be read from whichever shape this is.
@@ -147,7 +155,10 @@ function transactionEnvelopeFields(envelope: xdr.TransactionEnvelope): XdrField[
     fields.push(
       { label: "Contract", value: invocation.contractId },
       { label: "Function", value: invocation.functionName },
-      { label: "Arguments", value: invocation.args.length ? invocation.args.join(", ") : "(none)" }
+      {
+        label: "Arguments",
+        value: invocation.args.length ? invocation.args.join(", ") : "(none)",
+      }
     );
   }
 
@@ -155,8 +166,14 @@ function transactionEnvelopeFields(envelope: xdr.TransactionEnvelope): XdrField[
   if (resources) {
     fields.push(
       { label: "Instructions", value: resources.instructions.toLocaleString() },
-      { label: "Read / write bytes", value: `${resources.readBytes} / ${resources.writeBytes}` },
-      { label: "Resource fee", value: `${resources.resourceFeeStroops} stroops` }
+      {
+        label: "Read / write bytes",
+        value: `${resources.readBytes} / ${resources.writeBytes}`,
+      },
+      {
+        label: "Resource fee",
+        value: `${resources.resourceFeeStroops} stroops`,
+      }
     );
   }
 
@@ -165,7 +182,10 @@ function transactionEnvelopeFields(envelope: xdr.TransactionEnvelope): XdrField[
 
 function transactionResultFields(result: xdr.TransactionResult): XdrField[] {
   const fields: XdrField[] = [
-    { label: "Fee charged", value: `${result.feeCharged().toString()} stroops` },
+    {
+      label: "Fee charged",
+      value: `${result.feeCharged().toString()} stroops`,
+    },
     { label: "Result", value: result.result().switch().name },
   ];
 
@@ -185,13 +205,18 @@ function transactionResultFields(result: xdr.TransactionResult): XdrField[] {
 }
 
 function transactionMetaFields(meta: xdr.TransactionMeta): XdrField[] {
-  const fields: XdrField[] = [{ label: "Meta version", value: `v${meta.switch()}` }];
+  const fields: XdrField[] = [
+    { label: "Meta version", value: `v${meta.switch()}` },
+  ];
 
   try {
     const soroban = meta.switch() === 3 ? meta.v3().sorobanMeta() : null;
     if (soroban) {
       fields.push({ label: "Events", value: String(soroban.events().length) });
-      fields.push({ label: "Return value", value: scValToDisplay(soroban.returnValue()) });
+      fields.push({
+        label: "Return value",
+        value: scValToDisplay(soroban.returnValue()),
+      });
     }
   } catch {
     // Non-Soroban transactions carry no Soroban meta.
@@ -208,16 +233,24 @@ function ledgerKeyFields(key: xdr.LedgerKey): XdrField[] {
     if (kind === "contractData") {
       const data = key.contractData();
       fields.push(
-        { label: "Contract", value: Address.fromScAddress(data.contract()).toString() },
+        {
+          label: "Contract",
+          value: Address.fromScAddress(data.contract()).toString(),
+        },
         { label: "Durability", value: data.durability().name },
         { label: "Storage key", value: scValToDisplay(data.key()) }
       );
     } else if (kind === "contractCode") {
-      fields.push({ label: "WASM hash", value: key.contractCode().hash().toString("hex") });
+      fields.push({
+        label: "WASM hash",
+        value: key.contractCode().hash().toString("hex"),
+      });
     } else if (kind === "account") {
       fields.push({
         label: "Account",
-        value: StrKey.encodeEd25519PublicKey(key.account().accountId().ed25519()),
+        value: StrKey.encodeEd25519PublicKey(
+          key.account().accountId().ed25519()
+        ),
       });
     }
   } catch {
@@ -230,7 +263,10 @@ function ledgerKeyFields(key: xdr.LedgerKey): XdrField[] {
 function ledgerEntryFields(entry: xdr.LedgerEntry): XdrField[] {
   return [
     { label: "Entry type", value: entry.data().switch().name },
-    { label: "Last modified ledger", value: String(entry.lastModifiedLedgerSeq()) },
+    {
+      label: "Last modified ledger",
+      value: String(entry.lastModifiedLedgerSeq()),
+    },
   ];
 }
 
@@ -246,10 +282,16 @@ function specEntryFields(entry: xdr.ScSpecEntry): XdrField[] {
         value:
           fn
             .inputs()
-            .map((input) => `${input.name().toString()}: ${specTypeToString(input.type())}`)
+            .map(
+              (input) =>
+                `${input.name().toString()}: ${specTypeToString(input.type())}`
+            )
             .join(", ") || "(none)",
       },
-      { label: "Outputs", value: fn.outputs().map(specTypeToString).join(", ") || "(none)" }
+      {
+        label: "Outputs",
+        value: fn.outputs().map(specTypeToString).join(", ") || "(none)",
+      }
     );
   }
   return fields;
@@ -261,7 +303,10 @@ function scValFields(value: xdr.ScVal): XdrField[] {
     { label: "ScVal type", value: value.switch().name },
     {
       label: "Value",
-      value: decoded === undefined ? "(unrepresentable value)" : JSON.stringify(decoded, null, 2),
+      value:
+        decoded === undefined
+          ? "(unrepresentable value)"
+          : JSON.stringify(decoded, null, 2),
     },
   ];
 }
@@ -269,11 +314,17 @@ function scValFields(value: xdr.ScVal): XdrField[] {
 function summarize(type: XdrTypeName, base64: string): XdrField[] {
   switch (type) {
     case "TransactionEnvelope":
-      return transactionEnvelopeFields(xdr.TransactionEnvelope.fromXDR(base64, "base64"));
+      return transactionEnvelopeFields(
+        xdr.TransactionEnvelope.fromXDR(base64, "base64")
+      );
     case "TransactionResult":
-      return transactionResultFields(xdr.TransactionResult.fromXDR(base64, "base64"));
+      return transactionResultFields(
+        xdr.TransactionResult.fromXDR(base64, "base64")
+      );
     case "TransactionMeta":
-      return transactionMetaFields(xdr.TransactionMeta.fromXDR(base64, "base64"));
+      return transactionMetaFields(
+        xdr.TransactionMeta.fromXDR(base64, "base64")
+      );
     case "LedgerEntry":
       return ledgerEntryFields(xdr.LedgerEntry.fromXDR(base64, "base64"));
     case "LedgerKey":

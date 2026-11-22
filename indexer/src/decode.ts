@@ -7,12 +7,18 @@ function toDisplaySafe(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toDisplaySafe);
   if (value instanceof Map) {
     return Object.fromEntries(
-      Array.from(value.entries()).map(([k, v]) => [String(toDisplaySafe(k)), toDisplaySafe(v)])
+      Array.from(value.entries()).map(([k, v]) => [
+        String(toDisplaySafe(k)),
+        toDisplaySafe(v),
+      ])
     );
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, toDisplaySafe(v)])
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        toDisplaySafe(v),
+      ])
     );
   }
   return value;
@@ -36,7 +42,9 @@ export function scValToDisplay(val: xdr.ScVal): string {
   }
 }
 
-function scValToXdr(val: xdr.ScVal): string { return val.toXDR("base64"); }
+function scValToXdr(val: xdr.ScVal): string {
+  return val.toXDR("base64");
+}
 
 export interface DecodedInvocation {
   contractId: string;
@@ -50,7 +58,9 @@ function unwrapTx(envelope: xdr.TransactionEnvelope) {
     : envelope.v1().tx();
 }
 
-export function decodeInvocation(envelope: xdr.TransactionEnvelope): DecodedInvocation | null {
+export function decodeInvocation(
+  envelope: xdr.TransactionEnvelope
+): DecodedInvocation | null {
   try {
     const tx = unwrapTx(envelope);
     for (const op of tx.operations()) {
@@ -70,7 +80,9 @@ export function decodeInvocation(envelope: xdr.TransactionEnvelope): DecodedInvo
   }
 }
 
-export function extractInvocationReturnValue(meta: xdr.TransactionMeta): string | null {
+export function extractInvocationReturnValue(
+  meta: xdr.TransactionMeta
+): string | null {
   const returnValue = sorobanReturnValue(meta);
   return returnValue ? scValToDisplay(returnValue) : null;
 }
@@ -91,7 +103,10 @@ export function decodeContractCreation(
       if (op.body().switch().name !== "invokeHostFunction") return false;
       const hostFunction = op.body().invokeHostFunctionOp().hostFunction();
       const kind = hostFunction.switch().name;
-      return kind === "hostFunctionTypeCreateContract" || kind === "hostFunctionTypeCreateContractV2";
+      return (
+        kind === "hostFunctionTypeCreateContract" ||
+        kind === "hostFunctionTypeCreateContractV2"
+      );
     });
     if (!createsContract) return null;
     const returnValue = sorobanReturnValue(meta);
@@ -108,8 +123,10 @@ export function decodeContractCreation(
 
 function sorobanReturnValue(meta: xdr.TransactionMeta): xdr.ScVal | null {
   try {
-    if (meta.switch() === 3) return meta.v3().sorobanMeta()?.returnValue() ?? null;
-    if (meta.switch() === 4) return meta.v4().sorobanMeta()?.returnValue() ?? null;
+    if (meta.switch() === 3)
+      return meta.v3().sorobanMeta()?.returnValue() ?? null;
+    if (meta.switch() === 4)
+      return meta.v4().sorobanMeta()?.returnValue() ?? null;
   } catch {
     return null;
   }
@@ -133,13 +150,19 @@ export interface DecodedStorageChange {
  * append-only change log rather than just latest-value snapshots.
  */
 /** Hash the XDR LedgerKey exactly as Stellar TTL entries reference it. */
-function contractDataKeyHash(cd: { contract(): xdr.ScAddress; key(): xdr.ScVal; durability(): xdr.ContractDataDurability }): string {
+function contractDataKeyHash(cd: {
+  contract(): xdr.ScAddress;
+  key(): xdr.ScVal;
+  durability(): xdr.ContractDataDurability;
+}): string {
   const key = new xdr.LedgerKeyContractData({
     contract: cd.contract(),
     key: cd.key(),
     durability: cd.durability(),
   });
-  return createHash("sha256").update(xdr.LedgerKey.ledgerKeyContractData(key).toXDR()).digest("hex");
+  return createHash("sha256")
+    .update(xdr.LedgerKey.contractData(key).toXDR())
+    .digest("hex");
 }
 
 export interface DecodedTtlChange {
@@ -148,7 +171,9 @@ export interface DecodedTtlChange {
 }
 
 /** TTL ledger entries carry the hash of their corresponding contract-data key. */
-export function extractTtlChanges(meta: xdr.TransactionMeta): DecodedTtlChange[] {
+export function extractTtlChanges(
+  meta: xdr.TransactionMeta
+): DecodedTtlChange[] {
   const version = meta.switch();
   const value = version === 4 ? meta.v4() : version === 3 ? meta.v3() : null;
   if (!value) return [];
@@ -159,23 +184,36 @@ export function extractTtlChanges(meta: xdr.TransactionMeta): DecodedTtlChange[]
       if (kind === "ledgerEntryRemoved") {
         const key = change.removed();
         if (key.switch().name === "ttl") {
-          changes.push({ keyHash: Buffer.from(key.ttl().keyHash()).toString("hex"), liveUntilLedger: null });
+          changes.push({
+            keyHash: Buffer.from(key.ttl().keyHash()).toString("hex"),
+            liveUntilLedger: null,
+          });
         }
         continue;
       }
-      const entry = kind === "ledgerEntryCreated" ? change.created()
-        : kind === "ledgerEntryUpdated" ? change.updated() : null;
+      const entry =
+        kind === "ledgerEntryCreated"
+          ? change.created()
+          : kind === "ledgerEntryUpdated"
+            ? change.updated()
+            : null;
       if (!entry || entry.data().switch().name !== "ttl") continue;
       const ttl = entry.data().ttl();
-      changes.push({ keyHash: Buffer.from(ttl.keyHash()).toString("hex"), liveUntilLedger: ttl.liveUntilLedgerSeq() });
+      changes.push({
+        keyHash: Buffer.from(ttl.keyHash()).toString("hex"),
+        liveUntilLedger: ttl.liveUntilLedgerSeq(),
+      });
     }
   }
   return changes;
 }
 
-export function extractStorageChanges(meta: xdr.TransactionMeta): DecodedStorageChange[] {
+export function extractStorageChanges(
+  meta: xdr.TransactionMeta
+): DecodedStorageChange[] {
   const switchValue = meta.switch();
-  const v = switchValue === 4 ? meta.v4() : switchValue === 3 ? meta.v3() : null;
+  const v =
+    switchValue === 4 ? meta.v4() : switchValue === 3 ? meta.v3() : null;
   if (!v) return [];
 
   const out: DecodedStorageChange[] = [];
@@ -211,15 +249,25 @@ export function extractStorageChanges(meta: xdr.TransactionMeta): DecodedStorage
       const data = entry.data();
       if (data.switch().name !== "contractData") continue;
       const cd = data.contractData();
-      const isInstanceKey = cd.key().switch().name === "scvLedgerKeyContractInstance";
+      const isInstanceKey =
+        cd.key().switch().name === "scvLedgerKeyContractInstance";
       const changeType =
-        kind === "ledgerEntryCreated" ? "created" : kind === "ledgerEntryUpdated" ? "updated" : "state";
+        kind === "ledgerEntryCreated"
+          ? "created"
+          : kind === "ledgerEntryUpdated"
+            ? "updated"
+            : "state";
       const contractId = Address.fromScAddress(cd.contract()).toString();
 
       if (isInstanceKey) {
-        out.push(...expandInstanceEntry(contractId, cd.val(), changeType).map((row) => ({
-          ...row, keyHash: contractDataKeyHash(cd),
-        })));
+        out.push(
+          ...expandInstanceEntry(contractId, cd.val(), changeType).map(
+            (row) => ({
+              ...row,
+              keyHash: contractDataKeyHash(cd),
+            })
+          )
+        );
         continue;
       }
 
@@ -292,20 +340,28 @@ export interface DecodedEvent {
  * transaction's Soroban meta. A Soroban transaction has exactly one operation,
  * so V3's events are attributed to operation 0.
  */
-export function extractEvents(meta: xdr.TransactionMeta, txHash: string): DecodedEvent[] {
+export function extractEvents(
+  meta: xdr.TransactionMeta,
+  txHash: string
+): DecodedEvent[] {
   const switchValue = meta.switch();
   if (switchValue === 3) {
     const events = meta.v3().sorobanMeta()?.events() ?? [];
-    return events.flatMap((event, eventIndex) => decodeEvent(event, txHash, 0, eventIndex));
+    return events.flatMap((event, eventIndex) =>
+      decodeEvent(event, txHash, 0, eventIndex)
+    );
   }
   if (switchValue !== 4) return [];
 
   const out: DecodedEvent[] = [];
-  meta.v4().operations().forEach((opMeta, opIndex) => {
-    opMeta.events().forEach((event, eventIndex) => {
-      out.push(...decodeEvent(event, txHash, opIndex, eventIndex));
+  meta
+    .v4()
+    .operations()
+    .forEach((opMeta, opIndex) => {
+      opMeta.events().forEach((event, eventIndex) => {
+        out.push(...decodeEvent(event, txHash, opIndex, eventIndex));
+      });
     });
-  });
   return out;
 }
 

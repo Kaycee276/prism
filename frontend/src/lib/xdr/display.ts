@@ -6,12 +6,18 @@ function toDisplaySafe(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toDisplaySafe);
   if (value instanceof Map) {
     return Object.fromEntries(
-      Array.from(value.entries()).map(([k, v]) => [String(toDisplaySafe(k)), toDisplaySafe(v)])
+      Array.from(value.entries()).map(([k, v]) => [
+        String(toDisplaySafe(k)),
+        toDisplaySafe(v),
+      ])
     );
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, toDisplaySafe(v)])
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        toDisplaySafe(v),
+      ])
     );
   }
   return value;
