@@ -189,6 +189,25 @@ const createContract = loadFixture(createContractFixture as Fixture);
 const createContractV2 = loadFixture(createContractV2Fixture as Fixture);
 const multiOperation = loadFixture(multiOperationFixture as Fixture);
 
+describe("scValToDisplay map keys", () => {
+  const entry = (key: xdr.ScVal, val: number) =>
+    new xdr.ScMapEntry({ key, val: xdr.ScVal.scvU32(val) });
+  const vecAB = () => xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("a"), xdr.ScVal.scvSymbol("b")]);
+
+  it("keeps a vec key and a string key that look alike as separate entries", () => {
+    const map = xdr.ScVal.scvMap([entry(vecAB(), 1), entry(xdr.ScVal.scvString("a,b"), 2)]);
+    expect(JSON.parse(scValToDisplay(map))).toEqual({ '["a","b"]': 1, "a,b": 2 });
+  });
+
+  it("renders colliding keys as [key, value] pairs instead of dropping one", () => {
+    const map = xdr.ScVal.scvMap([entry(vecAB(), 1), entry(xdr.ScVal.scvString('["a","b"]'), 2)]);
+    expect(JSON.parse(scValToDisplay(map))).toEqual([
+      [["a", "b"], 1],
+      ['["a","b"]', 2],
+    ]);
+  });
+});
+
 describe("scValToDisplay (testnet fixtures)", () => {
   it("renders the Soroban return value of a real invocation", () => {
     const returnValue = successfulInvoke.meta.v4().sorobanMeta()!.returnValue()!;

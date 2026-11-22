@@ -57,6 +57,25 @@ describe("decodeScVal / scValToDisplay", () => {
   });
 });
 
+describe("map key display", () => {
+  const entry = (key: xdr.ScVal, val: number) =>
+    new xdr.ScMapEntry({ key, val: xdr.ScVal.scvU32(val) });
+  const vecAB = () => xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("a"), xdr.ScVal.scvSymbol("b")]);
+
+  it("keeps a vec key and a string key that look alike as separate entries", () => {
+    const map = xdr.ScVal.scvMap([entry(vecAB(), 1), entry(xdr.ScVal.scvString("a,b"), 2)]);
+    expect(JSON.parse(scValToDisplay(map))).toEqual({ '["a","b"]': 1, "a,b": 2 });
+  });
+
+  it("renders colliding keys as [key, value] pairs instead of dropping one", () => {
+    const map = xdr.ScVal.scvMap([entry(vecAB(), 1), entry(xdr.ScVal.scvString('["a","b"]'), 2)]);
+    expect(JSON.parse(scValToDisplay(map))).toEqual([
+      [["a", "b"], 1],
+      ['["a","b"]', 2],
+    ]);
+  });
+});
+
 describe("decodeXdr / decodeScValXdr (base64 round-trip)", () => {
   it("round-trips a symbol through base64 XDR", () => {
     const base64 = xdr.ScVal.scvSymbol("counter").toXDR("base64");
