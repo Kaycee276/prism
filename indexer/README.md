@@ -48,7 +48,7 @@ docker compose up
 
 ## How It Works
 
-1. On first run, the live indexer seeds a cursor (`IndexerCursor`) at the current latest ledger, or just before `INDEXER_START_LEDGER` if set. **No historical backfill is performed automatically.**
+1. On first run, the live indexer seeds a cursor (`IndexerCursor`) at the current latest ledger, or just before `INDEXER_START_LEDGER` if set. Live indexing does not backfill automatically; use the `backfill` command below to import an available historical range.
 2. Each poll cycle fetches new transactions from the RPC node, processes them in pages of 50, and advances the cursor.
 3. Both live indexing and backfill use RPC transaction cursors to safely paginate across pages, including pages that split a ledger.
 4. Processing is idempotent — `skipDuplicates` on insert means a crash-before-cursor-advance is safe to replay.
@@ -59,65 +59,111 @@ The live cursor is a single row (`id = 1`) tracking the last processed ledger an
 
 ## Tables
 
-### `indexer_cursor`
-Singleton row (id always 1) tracking how far the indexer has processed.
+Prisma creates quoted PascalCase table and column names. In `psql`, preserve that casing by quoting identifiers, for example `SELECT * FROM "IndexerCursor";`. The tables and columns below match `prisma/schema.prisma`.
+
+### `"IndexerCursor"`
+Singleton row (`id` defaults to 1) tracking live indexing progress.
 
 | Column      | Type     | Description                    |
 | ----------- | -------- | ------------------------------ |
-| `lastLedger` | `Int`   | Last processed ledger          |
+| `id` | `Int` | Singleton primary key (default 1) |
+| `lastLedger` | `Int` | Last processed ledger |
 | `paginationCursor` | `String?` | RPC page position when a ledger has more transactions |
-| `updatedAt`  | `DateTime` | Last cursor advance time     |
+| `updatedAt` | `DateTime` | Last cursor advance time |
 
-### `invocations`
-One row per Soroban contract function invocation.
+### `"IndexerGap"`
+One row per ledger range skipped by live indexing because it fell outside the RPC node's retention window.
 
-| Column         | Type      | Description                           |
-| -------------- | --------- | ------------------------------------- |
-| `txHash`       | `String`  | Transaction hash (unique)             |
-| `ledger`       | `Int`     | Ledger sequence number                |
-| `contractId`   | `String`  | Contract address                      |
-| `functionName` | `String`  | Invoked function name                 |
-| `args`         | `Json`    | Decoded arguments                     |
-| `successful`   | `Boolean` | Whether the invocation succeeded      |
-| `sourceAccount`| `String`  | Transaction source account            |
-| `returnValue`  | `String?` | Decoded return value for a successful invocation |
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `String` | Primary key (cuid) |
+| `fromLedger` | `Int` | First skipped ledger |
+| `toLedger` | `Int` | Last skipped ledger |
+| `reason` | `String` | Why the range was skipped |
+| `createdAt` | `DateTime` | When the gap was recorded |
 
-### `contracts`
+### `"BackfillCursor"`
+Singleton row (`id` defaults to 1) tracking the active or most recently completed fixed-range backfill.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `Int` | Singleton primary key (default 1) |
+| `fromLedger` | `Int` | Requested range start |
+| `toLedger` | `Int` | Requested range end |
+| `lastLedger` | `Int` | Last processed ledger |
+| `paginationCursor` | `String?` | RPC page position for resuming |
+| `completed` | `Boolean` | Whether the requested range is complete (default false) |
+| `updatedAt` | `DateTime` | Last progress update |
+
+### `"Invocation"`
+One row per observed Soroban contract function invocation.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `String` | Primary key (cuid) |
+| `txHash` | `String` | Transaction hash (unique) |
+| `ledger` | `Int` | Ledger sequence number |
+| `createdAt` | `DateTime` | When the invocation was indexed |
+| `contractId` | `String` | Contract address |
+| `functionName` | `String` | Invoked function name |
+| `args` | `Json` | Decoded arguments |
+| `successful` | `Boolean` | Whether the invocation succeeded |
+| `sourceAccount` | `String` | Transaction source account |
+| `returnValue` | `String?` | Decoded return value for a successful invocation |
+
+### `"Contract"`
 One row per observed contract deployment.
 
-| Column             | Type     | Description                         |
-| ------------------ | -------- | ----------------------------------- |
-| `contractId`       | `String` | Deployed contract address           |
-| `creator`          | `String` | Transaction source account          |
-| `deploymentLedger` | `Int`    | Ledger sequence of the deployment   |
-| `deploymentTxHash` | `String` | Transaction that deployed the contract |
+| Column | Type | Description |
+| --- | --- | --- |
+| `contractId` | `String` | Deployed contract address (primary key) |
+| `creator` | `String` | Transaction source account |
+| `deploymentLedger` | `Int` | Ledger sequence of the deployment |
+| `deploymentTxHash` | `String` | Transaction that deployed the contract (unique) |
+| `createdAt` | `DateTime` | When the deployment was indexed |
 
-### `backfill_cursor`
-Singleton row tracking the active (or most recently completed) fixed-range backfill, including its RPC pagination cursor.
-
-### `storage_changes`
+### `"StorageChange"`
 Append-only log of every observed change to a contract storage entry. The "current value" for a key is its most recent non-removed row — this is what makes full key enumeration possible.
 
-| Column        | Type     | Description                                      |
-| ------------- | -------- | ------------------------------------------------ |
-| `contractId`  | `String` | Contract address                                 |
-| `durability`  | `String` | `persistent` / `temporary` / `instance`          |
-| `keyDisplay`  | `String` | Human-readable decoded key                       |
-| `valueDisplay`| `String` | Decoded value (null when removed)                |
-| `changeType`  | `String` | `created` / `updated` / `removed` / `state`      |
-| `ledger`      | `Int`    | Ledger sequence number                           |
-| `txHash`      | `String` | Transaction hash                                 |
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `String` | Primary key (cuid) |
+| `contractId` | `String` | Contract address |
+| `durability` | `String` | `persistent` / `temporary` / `instance` |
+| `keyDisplay` | `String` | Human-readable decoded key |
+| `keyXdr` | `String` | Canonical base64 XDR identity of the storage key |
+| `valueDisplay` | `String?` | Decoded value (null when removed) |
+| `keyHash` | `String?` | SHA-256 of the XDR LedgerKey, used to join TTL records |
+| `changeType` | `String` | `created` / `updated` / `removed` / `state` |
+| `ledger` | `Int` | Ledger sequence number |
+| `txHash` | `String` | Transaction hash |
+| `createdAt` | `DateTime` | When the change was indexed |
 
-### `contract_event_records`
-One row per contract event emitted.
+### `"TtlChange"`
+One row per observed TTL update.
 
-| Column       | Type     | Description                    |
-| ------------ | -------- | ------------------------------ |
-| `eventId`    | `String` | Unique event identifier        |
-| `contractId` | `String` | Contract address               |
-| `type`       | `String` | Event type                     |
-| `topic`      | `Json`   | Event topics                   |
-| `value`      | `String` | Event value (decoded)          |
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `String` | Primary key (cuid) |
+| `keyHash` | `String` | SHA-256 hash of the XDR LedgerKey |
+| `liveUntilLedger` | `Int?` | Last live ledger, if available |
+| `ledger` | `Int` | Ledger sequence number |
+| `txHash` | `String` | Transaction hash |
+
+### `"ContractEventRecord"`
+One row per observed contract event.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `String` | Primary key (cuid) |
+| `eventId` | `String` | Unique event identifier |
+| `contractId` | `String` | Contract address |
+| `type` | `String` | Event type |
+| `topic` | `Json` | Event topics |
+| `value` | `String` | Decoded event value |
+| `txHash` | `String` | Transaction hash |
+| `ledger` | `Int` | Ledger sequence number |
+| `createdAt` | `DateTime` | When the event was indexed |
 
 ### `indexer_gaps`
 One row per ledger range the live indexer skipped without indexing, because the RPC node's retention window had already passed the cursor. Gaps apply to every contract. The frontend returns them as `historyGaps` from `GET /api/contract/{id}`.
