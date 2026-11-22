@@ -1006,3 +1006,84 @@ describe("decodeTransactionFailure (fee-bump)", () => {
     });
   });
 });
+
+describe("decodeAnyXdr (transaction meta)", () => {
+  const entry = (seq: number) =>
+    new xdr.LedgerEntry({
+      lastModifiedLedgerSeq: seq,
+      data: xdr.LedgerEntryData.ttl(
+        new xdr.TtlEntry({ keyHash: Buffer.alloc(32, seq), liveUntilLedgerSeq: 100 })
+      ),
+      ext: new xdr.LedgerEntryExt(0),
+    });
+  const contractEvent = (n: number) =>
+    new xdr.ContractEvent({
+      ext: new xdr.ExtensionPoint(0),
+      contractId: null,
+      type: xdr.ContractEventType.contract(),
+      body: new xdr.ContractEventBody(
+        0,
+        new xdr.ContractEventV0({ topics: [], data: xdr.ScVal.scvU32(n) })
+      ),
+    });
+  const fieldMap = (base64: string) =>
+    Object.fromEntries((decodeAnyXdr(base64)?.fields ?? []).map((f) => [f.label, f.value]));
+
+  it("summarizes a v4 meta's return value, events and ledger changes", () => {
+    const meta = new xdr.TransactionMeta(4, 
+      new xdr.TransactionMetaV4({
+        ext: new xdr.ExtensionPoint(0),
+        txChangesBefore: [xdr.LedgerEntryChange.ledgerEntryCreated(entry(1))],
+        operations: [
+          new xdr.OperationMetaV2({
+            ext: new xdr.ExtensionPoint(0),
+            changes: [xdr.LedgerEntryChange.ledgerEntryUpdated(entry(2))],
+            events: [contractEvent(1), contractEvent(2)],
+          }),
+          new xdr.OperationMetaV2({ ext: new xdr.ExtensionPoint(0), changes: [], events: [] }),
+        ],
+        txChangesAfter: [xdr.LedgerEntryChange.ledgerEntryState(entry(3))],
+        sorobanMeta: new xdr.SorobanTransactionMetaV2({
+          ext: new xdr.SorobanTransactionMetaExt(0),
+          returnValue: xdr.ScVal.scvU32(7),
+        }),
+        events: [
+          new xdr.TransactionEvent({
+            stage: xdr.TransactionEventStage.transactionEventStageAfterTx(),
+            event: contractEvent(9),
+          }),
+        ],
+        diagnosticEvents: [],
+      })
+    );
+    expect(fieldMap(meta.toXDR("base64"))).toEqual({
+      "Meta version": "v4",
+      "Return value": "7",
+      "Events per operation": "2, 0",
+      "Transaction events": "1",
+      "Ledger entry changes": "created 1, updated 1, state 1",
+    });
+  });
+
+  it("keeps the v3 summary unchanged", () => {
+    const meta = new xdr.TransactionMeta(3, 
+      new xdr.TransactionMetaV3({
+        ext: new xdr.ExtensionPoint(0),
+        txChangesBefore: [],
+        operations: [],
+        txChangesAfter: [],
+        sorobanMeta: new xdr.SorobanTransactionMeta({
+          ext: new xdr.SorobanTransactionMetaExt(0),
+          events: [contractEvent(1)],
+          returnValue: xdr.ScVal.scvU32(7),
+          diagnosticEvents: [],
+        }),
+      })
+    );
+    expect(fieldMap(meta.toXDR("base64"))).toEqual({
+      "Meta version": "v3",
+      Events: "1",
+      "Return value": "7",
+    });
+  });
+});
