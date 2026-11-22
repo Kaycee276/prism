@@ -63,6 +63,17 @@ export function isIndexerConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
 
+/** Test whether the configured Postgres database is reachable and accepting queries. */
+export async function checkDatabaseHealth(): Promise<boolean> {
+  if (!isIndexerConfigured()) return true;
+  try {
+    const { rows } = await getPool().query("SELECT 1 as healthy");
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function getPool(): Pool {
   if (!pool) pool = new Pool(poolConfigFromEnv(process.env));
   return pool;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { poolConfigFromEnv } from "./indexed-db";
+import {
+  checkDatabaseHealth,
+  isIndexerConfigured,
+  poolConfigFromEnv,
+} from "./indexed-db";
 
 const DATABASE_URL = "postgresql://prism:prism@db.example.com:5432/prism";
 
@@ -66,5 +70,18 @@ describe("poolConfigFromEnv", () => {
     expect(() => poolConfigFromEnv({ DATABASE_SSL: "yes" })).toThrow(
       /DATABASE_SSL/
     );
+  });
+});
+
+describe("isIndexerConfigured and checkDatabaseHealth", () => {
+  it("reports false and returns true when DATABASE_URL is not set", async () => {
+    const originalUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    try {
+      expect(isIndexerConfigured()).toBe(false);
+      expect(await checkDatabaseHealth()).toBe(true);
+    } finally {
+      if (originalUrl) process.env.DATABASE_URL = originalUrl;
+    }
   });
 });
