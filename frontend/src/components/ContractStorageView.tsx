@@ -48,7 +48,7 @@ export default function ContractStorageView({ contractId, instanceStorage, fullS
                     }`}>
                       {storageStateLabel(e.state ?? "live")}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-prism-muted"><ExpandableValue value={e.value} /></td>
+                    <td className="px-4 py-3 font-mono text-xs text-prism-muted"><ExpandableValue value={e.value} valueType={e.valueType} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -70,7 +70,7 @@ export default function ContractStorageView({ contractId, instanceStorage, fullS
               {instanceStorage.map((e, i) => (
                 <tr key={i} className="border-b border-prism-border last:border-0">
                   <td className="px-4 py-3 font-mono text-xs">{e.key}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-prism-muted"><ExpandableValue value={e.value} /></td>
+                  <td className="px-4 py-3 font-mono text-xs text-prism-muted"><ExpandableValue value={e.value} valueType={e.valueType} /></td>
                 </tr>
               ))}
             </tbody>

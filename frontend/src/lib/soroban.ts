@@ -1,4 +1,4 @@
-import { Account, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { Account, Address, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import type {
   ContractEvent,
   ContractInfo,
@@ -18,6 +18,7 @@ import {
   parseContractSpec,
   parseContractTypes,
   scValToDisplay,
+  scValTypeLabel,
   type ParsedTypeDef,
 } from "./xdr";
 import { config } from "./config";
@@ -77,7 +78,7 @@ export function extractSacAssetDetails(
   return details.name || details.symbol || details.decimals !== undefined ? details : undefined;
 }
 
-export async function getContractInfo(contractId: string): Promise<ContractInfo | null> {
+async function fetchContractInfo(contractId: string): Promise<ContractInfo | null> {
   let info: ContractInfo;
   try {
     const entry = await server().getContractData(
@@ -91,6 +92,7 @@ export async function getContractInfo(contractId: string): Promise<ContractInfo 
     const instanceStorage: StorageEntry[] = (instance.storage() ?? []).map((e) => ({
       key: scValToDisplay(e.key()),
       value: scValToDisplay(e.val()),
+      valueType: scValTypeLabel(e.val()),
       durability: "instance" as const,
     }));
 
@@ -165,6 +167,7 @@ export async function lookupStorageEntry(
     const found: StorageEntry = {
       key: keyDisplay,
       value: scValToDisplay(entry.val.contractData().val()),
+      valueType: scValTypeLabel(entry.val.contractData().val()),
       durability,
       liveUntilLedgerSeq: entry.liveUntilLedgerSeq ?? undefined,
     };
@@ -340,7 +343,9 @@ async function getContractEventsFromRpc(contractId: string, limit: number): Prom
         contractId,
         type: e.type,
         topic: e.topic.map(scValToDisplay),
+        topicTypes: e.topic.map(scValTypeLabel),
         value: scValToDisplay(e.value),
+        valueType: scValTypeLabel(e.value),
         txHash: e.txHash,
         ledger: e.ledger,
         timestamp: e.ledgerClosedAt,

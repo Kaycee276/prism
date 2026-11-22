@@ -105,6 +105,9 @@ export interface ContractEvent {
   type: string;
   topic: string[];
   value: string;
+  /** ScVal type of each topic and of the value, when the source kept them. */
+  topicTypes?: string[];
+  valueType?: string;
   txHash: string;
   ledger: number;
   timestamp: string;
@@ -117,6 +120,8 @@ export interface StorageEntry {
   key: string;
   value: string;
   durability: "persistent" | "temporary" | "instance";
+  /** ScVal type of the value, when the source kept it. */
+  valueType?: string;
   /** Ledger at which this entry's TTL expires, when known. */
   liveUntilLedgerSeq?: number;
   state?: StorageEntryState;

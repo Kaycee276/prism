@@ -104,6 +104,7 @@ export default function EventLog({
                       <span key={i}>
                         {i > 0 && ", "}
                         {linkifyAddresses(topic)}
+                        {e.topicTypes?.[i] && <span className="opacity-60"> ({e.topicTypes[i]})</span>}
                       </span>
                     ))}
                   </span>
@@ -124,7 +125,10 @@ export default function EventLog({
                 ))}
               </dl>
             ) : (
-              <p className="text-xs font-mono text-prism-muted break-all">{linkifyAddresses(e.value)}</p>
+              <p className="text-xs font-mono text-prism-muted break-all">
+                {linkifyAddresses(e.value)}
+                {e.valueType && <span className="opacity-60"> ({e.valueType})</span>}
+              </p>
             )}
           </div>
         );

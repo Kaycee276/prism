@@ -191,6 +191,12 @@ export default async function TxPage({ params }: Props) {
         <div className="mt-6 rounded-xl border border-prism-red/30 bg-prism-red/10 p-5">
           <h2 className="text-sm font-semibold text-prism-red mb-1">
             Failed: <span className="font-mono">{failure.resultCode}</span>
+            {failure.innerResultCode && (
+              <>
+                {" → "}
+                <span className="font-mono">{failure.innerResultCode}</span>
+              </>
+            )}
           </h2>
           {failure.operations.length === 0 ? (
             <p className="text-xs text-prism-red/80">

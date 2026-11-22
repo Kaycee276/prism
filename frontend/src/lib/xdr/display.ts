@@ -5,9 +5,16 @@ function toDisplaySafe(value: unknown): unknown {
   if (value instanceof Uint8Array) return Buffer.from(value).toString("hex");
   if (Array.isArray(value)) return value.map(toDisplaySafe);
   if (value instanceof Map) {
-    return Object.fromEntries(
-      Array.from(value.entries()).map(([k, v]) => [String(toDisplaySafe(k)), toDisplaySafe(v)])
-    );
+    // Non-primitive keys (vec, struct, address) stringify to "[object Object]" or
+    // a bare "a,b", so they're JSON-encoded to keep them distinct.
+    const pairs = Array.from(value.entries()).map(([k, v]) => {
+      const key = toDisplaySafe(k);
+      return [key, toDisplaySafe(v)] as const;
+    });
+    const keys = pairs.map(([k]) => (typeof k === "object" && k !== null ? JSON.stringify(k) : String(k)));
+    // If two keys still collide, keep every entry as [key, value] pairs rather than drop one.
+    if (new Set(keys).size !== keys.length) return pairs;
+    return Object.fromEntries(keys.map((k, i) => [k, pairs[i][1]]));
   }
   if (value && typeof value === "object") {
     return Object.fromEntries(
@@ -17,10 +24,29 @@ function toDisplaySafe(value: unknown): unknown {
   return value;
 }
 
+/**
+ * scValToNative turns a map into a plain object keyed by String(key), so two
+ * keys that stringify alike collapse before toDisplaySafe sees them. Map and
+ * vec nodes are converted here instead, so every key survives.
+ */
+function scValToNativeKeepingMapKeys(val: xdr.ScVal): unknown {
+  const kind = val.switch().name;
+  if (kind === "scvMap") {
+    return new Map(
+      (val.map() ?? []).map((e): [unknown, unknown] => [
+        scValToNativeKeepingMapKeys(e.key()),
+        scValToNativeKeepingMapKeys(e.val()),
+      ])
+    );
+  }
+  if (kind === "scvVec") return (val.vec() ?? []).map(scValToNativeKeepingMapKeys);
+  return scValToNative(val);
+}
+
 /** Decode an XDR ScVal into a JSON-safe native JS value (bigints/bytes normalized to strings). */
 export function decodeScVal(val: xdr.ScVal): unknown {
   try {
-    return toDisplaySafe(scValToNative(val));
+    return toDisplaySafe(scValToNativeKeepingMapKeys(val));
   } catch {
     return undefined;
   }
@@ -32,6 +58,15 @@ export function scValToDisplay(val: xdr.ScVal): string {
   const decoded = decodeScVal(val);
   if (decoded === undefined) return "(unrepresentable value)";
   return typeof decoded === "string" ? decoded : JSON.stringify(decoded);
+}
+
+/**
+ * The ScVal kind of a value as a short tag, e.g. "u32", "symbol", "address".
+ * Kept apart from scValToDisplay so the compact string stays the same for tables.
+ */
+export function scValTypeLabel(val: xdr.ScVal): string {
+  const name = val.switch().name.replace(/^scv/, "");
+  return name.charAt(0).toLowerCase() + name.slice(1);
 }
 
 /** Decode a base64-encoded ScVal XDR string to a display string. Falls back to the raw base64 on failure. */
