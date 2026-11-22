@@ -7,6 +7,10 @@ export default defineConfig({
   oxc: { jsx: "automatic" },
   test: {
     environment: "node",
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "text-summary", "lcov", "json-summary"],
+    },
   },
   resolve: {
     alias: {
