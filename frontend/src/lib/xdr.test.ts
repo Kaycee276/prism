@@ -965,3 +965,44 @@ describe("decodeTransactionFailure", () => {
     });
   });
 });
+
+describe("decodeTransactionFailure (fee-bump)", () => {
+  const feeCharged = xdr.Int64.fromString("200");
+  const paymentOk = xdr.OperationResult.opInner(
+    xdr.OperationResultTr.payment(xdr.PaymentResult.paymentSuccess())
+  );
+  const paymentUnderfunded = xdr.OperationResult.opInner(
+    xdr.OperationResultTr.payment(xdr.PaymentResult.paymentUnderfunded())
+  );
+
+  /** A fee-bump result whose inner transaction failed with the given operation results. */
+  function feeBumpFailedXdr(operations: xdr.OperationResult[]): string {
+    const inner = new xdr.InnerTransactionResult({
+      feeCharged,
+      result: xdr.InnerTransactionResultResult.txFailed(operations),
+      ext: new xdr.InnerTransactionResultExt(0),
+    });
+    return new xdr.TransactionResult({
+      feeCharged,
+      result: xdr.TransactionResultResult.txFeeBumpInnerFailed(
+        new xdr.InnerTransactionResultPair({ transactionHash: Buffer.alloc(32, 1), result: inner })
+      ),
+      ext: new xdr.TransactionResultExt(0),
+    }).toXDR("base64");
+  }
+
+  it("reports the outer code, the inner code, and the operation that failed", () => {
+    const outcome = decodeTransactionFailure(feeBumpFailedXdr([paymentOk, paymentUnderfunded]));
+    expect(outcome).toEqual({
+      status: "failed",
+      failure: {
+        resultCode: "txFeeBumpInnerFailed",
+        innerResultCode: "txFailed",
+        operations: [
+          { index: 0, code: "paymentSuccess", failed: false },
+          { index: 1, code: "paymentUnderfunded", failed: true },
+        ],
+      },
+    });
+  });
+});

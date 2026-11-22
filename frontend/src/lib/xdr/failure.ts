@@ -4,6 +4,11 @@ import { normalizeBase64 } from "./identify";
 export interface TransactionFailure {
   /** The transaction-level code, e.g. "txFailed" or "txBadSeq". */
   resultCode: string;
+  /**
+   * For a fee-bump, the code of the inner transaction that failed, e.g.
+   * "txFailed". Its operation results are the ones in `operations`.
+   */
+  innerResultCode?: string;
   /** Per-operation outcomes, in order. */
   operations: { index: number; code: string; failed: boolean }[];
 }
@@ -40,8 +45,17 @@ export function decodeTransactionFailure(resultXdrBase64: string): TransactionFa
   if (resultCode === "txSuccess") return { status: "succeeded" };
 
   let operations: TransactionFailure["operations"] = [];
+  let innerResultCode: string | undefined;
   try {
-    operations = (result.result().results() ?? []).map((op, index) => {
+    // A fee-bump wraps the real transaction, so its operation results sit one
+    // level down, inside the inner result pair.
+    let opResults: { results(): xdr.OperationResult[] | null } = result.result();
+    if (resultCode === "txFeeBumpInnerFailed") {
+      const inner = result.result().innerResultPair().result();
+      innerResultCode = inner.result().switch().name;
+      opResults = inner.result();
+    }
+    operations = (opResults.results() ?? []).map((op, index) => {
       // An opInner result nests the operation's own result union; the generic
       // value() accessor reaches it without switching on every op type.
       const code =
@@ -57,5 +71,5 @@ export function decodeTransactionFailure(resultXdrBase64: string): TransactionFa
     // Codes like txBadSeq carry no per-operation results.
   }
 
-  return { status: "failed", failure: { resultCode, operations } };
+  return { status: "failed", failure: { resultCode, innerResultCode, operations } };
 }
