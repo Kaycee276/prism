@@ -1,4 +1,4 @@
-import { Account, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
+import { Account, Address, BASE_FEE, Contract, Keypair, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk";
 import type {
   ContractEvent,
   ContractInfo,
@@ -77,7 +77,7 @@ export function extractSacAssetDetails(
   return details.name || details.symbol || details.decimals !== undefined ? details : undefined;
 }
 
-export async function getContractInfo(contractId: string): Promise<ContractInfo | null> {
+async function fetchContractInfo(contractId: string): Promise<ContractInfo | null> {
   let info: ContractInfo;
   try {
     const entry = await server().getContractData(
