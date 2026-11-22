@@ -204,6 +204,42 @@ function transactionResultFields(result: xdr.TransactionResult): XdrField[] {
   return fields;
 }
 
+/** Summarize a v4 (protocol 23+) meta: return value, events and ledger-entry changes. */
+function transactionMetaV4Fields(v4: xdr.TransactionMetaV4): XdrField[] {
+  const fields: XdrField[] = [];
+
+  const returnValue = v4.sorobanMeta()?.returnValue();
+  if (returnValue) {
+    fields.push({ label: "Return value", value: scValToDisplay(returnValue) });
+  }
+
+  const operations = v4.operations();
+  fields.push({
+    label: "Events per operation",
+    value: operations.length ? operations.map((op) => op.events().length).join(", ") : "(none)",
+  });
+  fields.push({ label: "Transaction events", value: String(v4.events().length) });
+
+  const changes = [
+    ...v4.txChangesBefore(),
+    ...operations.flatMap((op) => op.changes()),
+    ...v4.txChangesAfter(),
+  ];
+  const counts = new Map<string, number>();
+  for (const change of changes) {
+    const kind = change.switch().name.replace(/^ledgerEntry/, "").toLowerCase();
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  fields.push({
+    label: "Ledger entry changes",
+    value: counts.size
+      ? [...counts].map(([kind, n]) => `${kind} ${n}`).join(", ")
+      : "(none)",
+  });
+
+  return fields;
+}
+
 function transactionMetaFields(meta: xdr.TransactionMeta): XdrField[] {
   const fields: XdrField[] = [
     { label: "Meta version", value: `v${meta.switch()}` },
@@ -220,6 +256,14 @@ function transactionMetaFields(meta: xdr.TransactionMeta): XdrField[] {
     }
   } catch {
     // Non-Soroban transactions carry no Soroban meta.
+  }
+
+  if (meta.switch() === 4) {
+    try {
+      fields.push(...transactionMetaV4Fields(meta.v4()));
+    } catch {
+      // Leave the version line alone if the v4 body doesn't read cleanly.
+    }
   }
 
   return fields;

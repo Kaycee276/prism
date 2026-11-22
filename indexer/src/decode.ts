@@ -24,6 +24,25 @@ function toDisplaySafe(value: unknown): unknown {
   return value;
 }
 
+/**
+ * scValToNative turns a map into a plain object keyed by String(key), so two
+ * keys that stringify alike collapse before toDisplaySafe sees them. Map and
+ * vec nodes are converted here instead, so every key survives.
+ */
+function scValToNativeKeepingMapKeys(val: xdr.ScVal): unknown {
+  const kind = val.switch().name;
+  if (kind === "scvMap") {
+    return new Map(
+      (val.map() ?? []).map((e): [unknown, unknown] => [
+        scValToNativeKeepingMapKeys(e.key()),
+        scValToNativeKeepingMapKeys(e.val()),
+      ])
+    );
+  }
+  if (kind === "scvVec") return (val.vec() ?? []).map(scValToNativeKeepingMapKeys);
+  return scValToNative(val);
+}
+
 /** Decode an ScVal to a compact display string. Mirrors frontend/src/lib/xdr.ts's scValToDisplay. */
 export function scValToDisplay(val: xdr.ScVal): string {
   const switchName = val.switch().name;
@@ -35,7 +54,7 @@ export function scValToDisplay(val: xdr.ScVal): string {
   // instance value should read it via .instance() instead of this function.
   if (switchName === "scvContractInstance") return "(contract instance)";
   try {
-    const decoded = toDisplaySafe(scValToNative(val));
+    const decoded = toDisplaySafe(scValToNativeKeepingMapKeys(val));
     return typeof decoded === "string" ? decoded : JSON.stringify(decoded);
   } catch {
     return "(unrepresentable value)";

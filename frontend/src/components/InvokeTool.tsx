@@ -137,6 +137,10 @@ export default function InvokeTool({
           </select>
         </div>
 
+        {fn?.doc && (
+          <p className="text-xs text-prism-muted whitespace-pre-wrap">{fn.doc}</p>
+        )}
+
         {fn && fn.inputs.length > 0 && (
           <div className="space-y-2">
             {fn.inputs.map((input) => {

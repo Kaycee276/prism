@@ -13,6 +13,7 @@ import {
 import {
   decodeScVal,
   scValToDisplay,
+  scValTypeLabel,
   decodeXdr,
   decodeScValXdr,
   coerceArgInput,
@@ -61,6 +62,25 @@ describe("decodeScVal / scValToDisplay", () => {
   it("renders a vec as JSON", () => {
     const vec = xdr.ScVal.scvVec([xdr.ScVal.scvU32(1), xdr.ScVal.scvU32(2)]);
     expect(scValToDisplay(vec)).toBe("[1,2]");
+  });
+});
+
+describe("map key display", () => {
+  const entry = (key: xdr.ScVal, val: number) =>
+    new xdr.ScMapEntry({ key, val: xdr.ScVal.scvU32(val) });
+  const vecAB = () => xdr.ScVal.scvVec([xdr.ScVal.scvSymbol("a"), xdr.ScVal.scvSymbol("b")]);
+
+  it("keeps a vec key and a string key that look alike as separate entries", () => {
+    const map = xdr.ScVal.scvMap([entry(vecAB(), 1), entry(xdr.ScVal.scvString("a,b"), 2)]);
+    expect(JSON.parse(scValToDisplay(map))).toEqual({ '["a","b"]': 1, "a,b": 2 });
+  });
+
+  it("renders colliding keys as [key, value] pairs instead of dropping one", () => {
+    const map = xdr.ScVal.scvMap([entry(vecAB(), 1), entry(xdr.ScVal.scvString('["a","b"]'), 2)]);
+    expect(JSON.parse(scValToDisplay(map))).toEqual([
+      [["a", "b"], 1],
+      ['["a","b"]', 2],
+    ]);
   });
 });
 
@@ -175,6 +195,18 @@ describe("coerceArgInput integer ranges", () => {
       max: "170141183460469231731687303715884105727",
       scvName: "scvI128",
     },
+    {
+      type: "U256",
+      min: "0",
+      max: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      scvName: "scvU256",
+    },
+    {
+      type: "I256",
+      min: "-57896044618658097711785492504343953926634992332820282019728792003956564819968",
+      max: "57896044618658097711785492504343953926634992332820282019728792003956564819967",
+      scvName: "scvI256",
+    },
   ];
 
   it.each(integerTypes)(
@@ -213,6 +245,43 @@ describe("coerceArgInput integer ranges", () => {
 });
 
 describe("parseContractSpec", () => {
+  function functionEntry(doc = "", inputType = xdr.ScSpecTypeDef.scSpecTypeU32()) {
+    return xdr.ScSpecEntry.scSpecEntryFunctionV0(
+      new xdr.ScSpecFunctionV0({
+        doc,
+        name: "annotate",
+        inputs: [
+          new xdr.ScSpecFunctionInputV0({ doc: "", name: "value", type: inputType }),
+        ],
+        outputs: [inputType],
+      })
+    );
+  }
+
+  it("renders tuple elements in signatures instead of the bare word Tuple", () => {
+    const tuple = xdr.ScSpecTypeDef.scSpecTypeTuple(
+      new xdr.ScSpecTypeTuple({
+        valueTypes: [xdr.ScSpecTypeDef.scSpecTypeU32(), xdr.ScSpecTypeDef.scSpecTypeSymbol()],
+      })
+    );
+
+    const [spec] = parseContractSpec(wasmWithSpec([functionEntry("", tuple)]));
+    expect(spec.inputs).toEqual([{ name: "value", type: "(U32, Symbol)" }]);
+    expect(spec.outputs).toEqual(["(U32, Symbol)"]);
+  });
+
+  it("keeps a function's doc comment", () => {
+    const [spec] = parseContractSpec(
+      wasmWithSpec([functionEntry("Advances the note's revision.")])
+    );
+    expect(spec.doc).toBe("Advances the note's revision.");
+  });
+
+  it("omits an absent function doc comment rather than reporting an empty string", () => {
+    const [spec] = parseContractSpec(wasmWithSpec([functionEntry()]));
+    expect(spec.doc).toBeUndefined();
+  });
+
   it("returns an empty array for a WASM binary with no contract spec section", () => {
     // Smallest valid WASM module: magic number + version, no sections.
     const emptyModule = Buffer.from([
@@ -709,6 +778,26 @@ describe("coerceArgInput with compound types", () => {
     );
   });
 
+  it("coerces tuple elements against their declared types", () => {
+    const tuple = coerceArgInput('[1, "a"]', "(U32, Symbol)");
+    expect(tuple.switch().name).toBe("scvVec");
+    // JSON inference alone would give scvU64 and scvString here.
+    expect(tuple.vec()!.map((v) => v.switch().name)).toEqual(["scvU32", "scvSymbol"]);
+    expect(tuple.vec()![1].sym().toString()).toBe("a");
+  });
+
+  it("rejects a tuple whose length disagrees with the spec", () => {
+    expect(() => coerceArgInput("[1]", "(U32, Symbol)")).toThrow(
+      "(U32, Symbol) expects a JSON array of 2 value(s)."
+    );
+    expect(() => coerceArgInput('[1, "a", 2]', "(U32, Symbol)")).toThrow(
+      /expects a JSON array of 2 value\(s\)/
+    );
+    expect(() => coerceArgInput('{"0":1}', "(U32, Symbol)")).toThrow(
+      /expects a JSON array of 2 value\(s\)/
+    );
+  });
+
   it("still falls back to JSON inference for a contract's own types", () => {
     expect(coerceArgInput('{"a":1}', "SomeUdtType").switch().name).toBe(
       "scvMap"
@@ -1084,5 +1173,143 @@ describe("decodeTransactionFailure", () => {
         { index: 0, code: "opBadAuth", failed: true },
       ]);
     });
+  });
+});
+
+describe("decodeTransactionFailure (fee-bump)", () => {
+  const feeCharged = xdr.Int64.fromString("200");
+  const paymentOk = xdr.OperationResult.opInner(
+    xdr.OperationResultTr.payment(xdr.PaymentResult.paymentSuccess())
+  );
+  const paymentUnderfunded = xdr.OperationResult.opInner(
+    xdr.OperationResultTr.payment(xdr.PaymentResult.paymentUnderfunded())
+  );
+
+  /** A fee-bump result whose inner transaction failed with the given operation results. */
+  function feeBumpFailedXdr(operations: xdr.OperationResult[]): string {
+    const inner = new xdr.InnerTransactionResult({
+      feeCharged,
+      result: xdr.InnerTransactionResultResult.txFailed(operations),
+      ext: new xdr.InnerTransactionResultExt(0),
+    });
+    return new xdr.TransactionResult({
+      feeCharged,
+      result: xdr.TransactionResultResult.txFeeBumpInnerFailed(
+        new xdr.InnerTransactionResultPair({ transactionHash: Buffer.alloc(32, 1), result: inner })
+      ),
+      ext: new xdr.TransactionResultExt(0),
+    }).toXDR("base64");
+  }
+
+  it("reports the outer code, the inner code, and the operation that failed", () => {
+    const outcome = decodeTransactionFailure(feeBumpFailedXdr([paymentOk, paymentUnderfunded]));
+    expect(outcome).toEqual({
+      status: "failed",
+      failure: {
+        resultCode: "txFeeBumpInnerFailed",
+        innerResultCode: "txFailed",
+        operations: [
+          { index: 0, code: "paymentSuccess", failed: false },
+          { index: 1, code: "paymentUnderfunded", failed: true },
+        ],
+      },
+    });
+  });
+});
+
+describe("decodeAnyXdr (transaction meta)", () => {
+  const entry = (seq: number) =>
+    new xdr.LedgerEntry({
+      lastModifiedLedgerSeq: seq,
+      data: xdr.LedgerEntryData.ttl(
+        new xdr.TtlEntry({ keyHash: Buffer.alloc(32, seq), liveUntilLedgerSeq: 100 })
+      ),
+      ext: new xdr.LedgerEntryExt(0),
+    });
+  const contractEvent = (n: number) =>
+    new xdr.ContractEvent({
+      ext: new xdr.ExtensionPoint(0),
+      contractId: null,
+      type: xdr.ContractEventType.contract(),
+      body: new xdr.ContractEventBody(
+        0,
+        new xdr.ContractEventV0({ topics: [], data: xdr.ScVal.scvU32(n) })
+      ),
+    });
+  const fieldMap = (base64: string) =>
+    Object.fromEntries((decodeAnyXdr(base64)?.fields ?? []).map((f) => [f.label, f.value]));
+
+  it("summarizes a v4 meta's return value, events and ledger changes", () => {
+    const meta = new xdr.TransactionMeta(4, 
+      new xdr.TransactionMetaV4({
+        ext: new xdr.ExtensionPoint(0),
+        txChangesBefore: [xdr.LedgerEntryChange.ledgerEntryCreated(entry(1))],
+        operations: [
+          new xdr.OperationMetaV2({
+            ext: new xdr.ExtensionPoint(0),
+            changes: [xdr.LedgerEntryChange.ledgerEntryUpdated(entry(2))],
+            events: [contractEvent(1), contractEvent(2)],
+          }),
+          new xdr.OperationMetaV2({ ext: new xdr.ExtensionPoint(0), changes: [], events: [] }),
+        ],
+        txChangesAfter: [xdr.LedgerEntryChange.ledgerEntryState(entry(3))],
+        sorobanMeta: new xdr.SorobanTransactionMetaV2({
+          ext: new xdr.SorobanTransactionMetaExt(0),
+          returnValue: xdr.ScVal.scvU32(7),
+        }),
+        events: [
+          new xdr.TransactionEvent({
+            stage: xdr.TransactionEventStage.transactionEventStageAfterTx(),
+            event: contractEvent(9),
+          }),
+        ],
+        diagnosticEvents: [],
+      })
+    );
+    expect(fieldMap(meta.toXDR("base64"))).toEqual({
+      "Meta version": "v4",
+      "Return value": "7",
+      "Events per operation": "2, 0",
+      "Transaction events": "1",
+      "Ledger entry changes": "created 1, updated 1, state 1",
+    });
+  });
+
+  it("keeps the v3 summary unchanged", () => {
+    const meta = new xdr.TransactionMeta(3, 
+      new xdr.TransactionMetaV3({
+        ext: new xdr.ExtensionPoint(0),
+        txChangesBefore: [],
+        operations: [],
+        txChangesAfter: [],
+        sorobanMeta: new xdr.SorobanTransactionMeta({
+          ext: new xdr.SorobanTransactionMetaExt(0),
+          events: [contractEvent(1)],
+          returnValue: xdr.ScVal.scvU32(7),
+          diagnosticEvents: [],
+        }),
+      })
+    );
+    expect(fieldMap(meta.toXDR("base64"))).toEqual({
+      "Meta version": "v3",
+      Events: "1",
+      "Return value": "7",
+    });
+  });
+});
+
+describe("scValTypeLabel", () => {
+  it("tags scalars with their ScVal kind, so same-looking values stay distinct", () => {
+    expect(scValTypeLabel(xdr.ScVal.scvSymbol("5"))).toBe("symbol");
+    expect(scValTypeLabel(xdr.ScVal.scvString("5"))).toBe("string");
+    expect(scValTypeLabel(xdr.ScVal.scvU32(5))).toBe("u32");
+    expect(scValTypeLabel(xdr.ScVal.scvU64(xdr.Uint64.fromString("5")))).toBe("u64");
+  });
+
+  it("leaves the compact string unchanged for the same values", () => {
+    expect(scValToDisplay(xdr.ScVal.scvSymbol("5"))).toBe("5");
+    expect(scValToDisplay(xdr.ScVal.scvString("5"))).toBe("5");
+    expect(scValToDisplay(xdr.ScVal.scvU32(5))).toBe("5");
+    expect(scValToDisplay(xdr.ScVal.scvU64(xdr.Uint64.fromString("5")))).toBe("5");
   });
 });
